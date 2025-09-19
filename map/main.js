@@ -1,5 +1,6 @@
 // --- Global Variables ---
 let gridLayer = null; // This will hold our grid lines layer
+let labelLayer = null; // This will hold our text labels
 let isGridVisible = true; // The initial state of the grid
 
 // --- Initialize the Map ---
@@ -16,11 +17,13 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
  * Updates and redraws the 1x1 degree grid based on the current map view.
  */
 function updateGrid() {
-    // Don't draw the grid if zoomed too far out
+    
+    // Clear existing layers before redrawing
+    if (gridLayer) gridLayer.clearLayers();
+    if (labelLayer) labelLayer.clearLayers();
+    
+    // Don't draw if zoomed too far out
     if (map.getZoom() < 4) {
-        if (gridLayer) {
-            gridLayer.clearLayers();
-        }
         return;
     }
 
@@ -32,51 +35,79 @@ function updateGrid() {
     const west = Math.floor(bounds.getWest());
 
     const gridLines = [];
+    const gridLabels = [];
 
-    // Create vertical lines (longitude)
+    // --- Create Vertical Lines (Longitude) and their labels ---
     for (let lon = west; lon <= east; lon++) {
         const line = L.polyline([[north + 1, lon], [south - 1, lon]], {
-            color: '#555',
-            weight: 1,
-            opacity: 0.7,
-            interactive: false // Lines should not be clickable
+            color: '#555', weight: 1, opacity: 0.7, interactive: false
         });
         gridLines.push(line);
-    }
 
-    // Create horizontal lines (latitude)
-    for (let lat = south; lat <= north; lat++) {
-        const line = L.polyline([[lat, west - 1], [lat, east + 1]], {
-            color: '#555',
-            weight: 1,
-            opacity: 0.7,
+        // Add a label for the longitude line at the top of the screen
+        const labelText = lon > 0 ? `${lon}°E` : lon < 0 ? `${Math.abs(lon)}°W` : `${lon}°`;
+        const labelPos = [bounds.getNorth() - 0.1, lon + 0.05]; // Position slightly inside the view
+        const label = L.marker(labelPos, {
+            icon: L.divIcon({
+                className: 'grid-label',
+                html: labelText
+            }),
             interactive: false
         });
-        gridLines.push(line);
+        gridLabels.push(label);
     }
 
-    // Update the grid layer with the new lines
-    if (!gridLayer) {
-        gridLayer = L.layerGroup(gridLines).addTo(map);
-    } else {
-        gridLayer.clearLayers();
-        gridLines.forEach(line => gridLayer.addLayer(line));
+    // --- Create Horizontal Lines (Latitude) and their labels ---
+    for (let lat = south; lat <= north; lat++) {
+        const line = L.polyline([[lat, west - 1], [lat, east + 1]], {
+            color: '#555', weight: 1, opacity: 0.7, interactive: false
+        });
+        gridLines.push(line);
+
+        // Add a label for the latitude line on the left of the screen
+        const labelText = lat > 0 ? `${lat}°N` : lat < 0 ? `${Math.abs(lat)}°S` : `${lat}°`;
+        const labelPos = [lat + 0.05, bounds.getWest() + 0.1]; // Position slightly inside the view
+        const label = L.marker(labelPos, {
+            icon: L.divIcon({
+                className: 'grid-label',
+                html: labelText
+            }),
+            interactive: false
+        });
+        gridLabels.push(label);
     }
+
+    // --- Manage Layers ---
+    // Initialize layers if they don't exist
+    if (!gridLayer) {
+        gridLayer = L.layerGroup().addTo(map);
+    }
+    if (!labelLayer) {
+        labelLayer = L.layerGroup().addTo(map);
+    }
+    
+    // Add new lines and labels to their respective layers
+    gridLines.forEach(line => gridLayer.addLayer(line));
+    gridLabels.forEach(label => labelLayer.addLayer(label));
+
+    // Ensure the visibility matches the toggle state
+    toggleGridVisibility(isGridVisible);
 }
 
 /**
- * Toggles the visibility of the entire grid layer.
- * This function will be called from our Python code.
- * @param {boolean} isVisible - True to show the grid, false to hide it.
+ * Toggles the visibility of the grid and label layers.
+ * @param {boolean} isVisible - True to show, false to hide.
  */
 function toggleGridVisibility(isVisible) {
-    if (!gridLayer) return;
-
     isGridVisible = isVisible;
+    if (!gridLayer || !labelLayer) return;
+
     if (isGridVisible) {
         map.addLayer(gridLayer);
+        map.addLayer(labelLayer);
     } else {
         map.removeLayer(gridLayer);
+        map.removeLayer(labelLayer);
     }
 }
 
