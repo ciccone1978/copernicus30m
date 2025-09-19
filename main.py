@@ -64,14 +64,22 @@ class MainWindow(QMainWindow):
 
     def _setup_actions(self):
         """Create the application's actions (reusable commands)."""
+
         # --- Exit Action ---
-        # We create an action with an icon, text, and a shortcut.
         exit_icon_path = os.path.join(self.base_dir, "icons", "control-power.png")
         self.exit_action = QAction(QIcon(exit_icon_path), "&Exit", self)
         self.exit_action.setShortcut("Ctrl+Q")
         self.exit_action.setStatusTip("Exit the application")
-        # Connect the action's 'triggered' signal to the application's quit slot
         self.exit_action.triggered.connect(QApplication.instance().quit)
+
+        # --- Toggle Grid Action ---
+        grid_icon_path = os.path.join(self.base_dir, "icons", "grid.png")
+        self.toggle_grid_action = QAction(QIcon(grid_icon_path), "Show/Hide &Grid", self)
+        self.toggle_grid_action.setShortcut("Ctrl+G")
+        self.toggle_grid_action.setStatusTip("Show or hide the 1x1 degree grid")
+        self.toggle_grid_action.setCheckable(True)
+        self.toggle_grid_action.setChecked(True)
+        self.toggle_grid_action.toggled.connect(self.on_toggle_grid)
 
     def _setup_menu(self):
         """Create the main menu bar."""
@@ -82,18 +90,44 @@ class MainWindow(QMainWindow):
         file_menu = menu.addMenu("&File")
         file_menu.addAction(self.exit_action)
 
+        # --- View Menu ---
+        view_menu = menu.addMenu("&View")
+        view_menu.addAction(self.toggle_grid_action)
+
     def _setup_toolbar(self):
         """Create the main toolbar."""
         
         toolbar = self.addToolBar("Main Toolbar")
         toolbar.setIconSize(QSize(24, 24)) # Set a nice size for the icons
         toolbar.addAction(self.exit_action)
+        toolbar.addSeparator()
+        toolbar.addAction(self.toggle_grid_action)
 
     def _setup_statusbar(self):
         """Create the status bar."""
         
         self.setStatusBar(QStatusBar(self))       
         self.statusBar().showMessage("Welcome to the Copernicus DEM Downloader!", 5000)
+
+    # --- The slot that responds to the toggle action ---
+    @Slot(bool)
+    def on_toggle_grid(self, is_checked):
+        """
+        Executes JavaScript in the web view to show or hide the grid.
+        
+        Args:
+            is_checked (bool): The new state of the action, passed by the 'toggled' signal.
+        """
+        if self.map_view.page().url().isEmpty():
+             # Don't try to run JS if the page isn't loaded yet
+            return
+
+        print(f"Toggling grid visibility to: {is_checked}")
+        # The argument to the JS function must be 'true' or 'false' (lowercase)
+        js_code = f"toggleGridVisibility({str(is_checked).lower()});"
+        self.map_view.page().runJavaScript(js_code)
+
+
 
 
 if __name__ == "__main__":
