@@ -1,0 +1,13 @@
+/* Remove default browser margins and padding */
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+}
+
+/* Make the map container fill its parent */
+#map {
+    width: 100%;
+    height: 100%;
+}
