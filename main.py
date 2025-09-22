@@ -14,12 +14,15 @@ from PySide6.QtWidgets import (
     QListWidget,
     QPushButton,
     QProgressBar,
-    QListWidgetItem
+    QListWidgetItem,
+    QFileDialog, 
+    QMessageBox
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
 
 from local_http_server import LocalHttpServer
+from download_worker import DownloadWorker
 
 # --- Define the Bridge class ---
 class MapBridge(QObject):
@@ -54,6 +57,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        self.selected_tiles = set()
+        self.worker = None 
+
         self.setWindowTitle("Copernicus DEM Tile Downloader")
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -80,8 +86,7 @@ class MainWindow(QMainWindow):
         self._setup_menu()
         self._setup_toolbar()
         self._setup_statusbar()
-        
-        self.selected_tiles = set()
+               
         # --- Setup the Web Channel for JS-Python communication ---
         self._setup_web_channel()
 
@@ -110,7 +115,8 @@ class MainWindow(QMainWindow):
         # 3. Download Button
         self.download_button = QPushButton("Download Selected Tiles")
         self.download_button.setToolTip("Download all tiles in the list.")
-        self.download_button.setEnabled(False) # Initially disabled until tiles are selected
+        self.download_button.setEnabled(False)
+        self.download_button.clicked.connect(self.start_download)
 
         # 4. Progress Bar
         self.progress_bar = QProgressBar()
@@ -137,10 +143,72 @@ class MainWindow(QMainWindow):
         print(f"Server is ready. Loading map from http://{host}:{port}/index.html")
         self.map_view.setUrl(QUrl(f"http://{host}:{port}/index.html"))
 
+    # --- NEW: Methods for handling the download process ---
+    @Slot()
+    def start_download(self):
+        """Initiates the file download process."""
+        if not self.selected_tiles:
+            QMessageBox.information(self, "No Tiles Selected", "Please select one or more tiles on the map before downloading.")
+            return
+
+        save_path = QFileDialog.getExistingDirectory(
+            self,
+            "Select Save Directory",
+            os.path.expanduser("~") # Start in the user's home directory
+        )
+
+        if not save_path: # User cancelled the dialog
+            return
+
+        # --- UI State: Preparing for download ---
+        self.progress_bar.setValue(0)
+        self.progress_bar.show()
+        self.download_button.setEnabled(False)
+        self.tile_list_widget.setEnabled(False) # Prevent changes during download
+        self.statusBar().showMessage("Starting download...")
+
+        # --- Create and start the worker ---
+        self.worker = DownloadWorker(list(self.selected_tiles), save_path)
+        self.worker.progress_updated.connect(self.update_progress)
+        self.worker.tile_finished.connect(self.update_status_message)
+        self.worker.error_occurred.connect(self.show_error_message)
+        self.worker.finished.connect(self.on_download_finished)
+        self.worker.start()
+
+    @Slot(int, int)
+    def update_progress(self, current_value, total_value):
+        """Updates the progress bar."""
+        self.progress_bar.setMaximum(total_value)
+        self.progress_bar.setValue(current_value)
+
+    @Slot(str)
+    def update_status_message(self, message):
+        """Shows a temporary message in the status bar."""
+        self.statusBar().showMessage(message, 5000)
+
+    @Slot(str)
+    def show_error_message(self, message):
+        """Shows an error in the status bar or a dialog."""
+        self.statusBar().showMessage(message, 10000) # Show errors for longer
+        # For more critical errors, you could use a QMessageBox:
+        # QMessageBox.warning(self, "Download Error", message)
+
+    @Slot()
+    def on_download_finished(self):
+        """Called when the worker thread has finished."""
+        self.statusBar().showMessage("All downloads completed!", 10000)
+        self.progress_bar.hide()
+        self.download_button.setEnabled(True)
+        self.tile_list_widget.setEnabled(True)
+        self.worker = None # Allow the worker to be garbage collected
+        QMessageBox.information(self, "Download Complete", "All selected tiles have been processed.")    
+
     def closeEvent(self, event):
-        """
-        Overrides the window's close event to ensure the server is stopped.
-        """
+        """Ensure worker is stopped if running when window is closed."""
+        if self.worker and self.worker.isRunning():
+            # A more advanced implementation might ask the user for confirmation
+            self.worker.quit() # Request the thread to stop
+            self.worker.wait() # Wait for it to finish
         self.http_server.stop()
         self.http_server.wait()
         event.accept()
