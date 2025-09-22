@@ -118,3 +118,25 @@ map.on('moveend', updateGrid);
 // --- Initial Grid Draw ---
 // Perform an initial draw when the script loads.
 updateGrid();
+
+
+// --- QWebChannel Initialization ---
+// This code block sets up the connection from JavaScript to Python.
+document.addEventListener("DOMContentLoaded", () => {
+    new QWebChannel(qt.webChannelTransport, function(channel) {
+        // 'backend' is the name we registered in our Python code.
+        // window.backend is now a JavaScript object that mirrors our MapBridge Python object.
+        window.backend = channel.objects.backend;
+
+        // Now that the bridge is set up, we can add the mouse listener.
+        if (window.backend) {
+            map.on('mousemove', function(e) {
+                // Call the 'on_mouse_move' slot on our Python MapBridge object
+                // and pass the latitude and longitude as arguments.
+                window.backend.on_mouse_move(e.latlng.lat, e.latlng.lng);
+            });
+        } else {
+            console.error("Backend object not found in QWebChannel.");
+        }
+    });
+});

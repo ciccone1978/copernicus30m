@@ -1,19 +1,45 @@
 import sys
 import os
 
-# Make sure to import the necessary Qt modules for signals/slots
-from PySide6.QtCore import Qt, QUrl, Slot, QSize
+from PySide6.QtCore import Qt, QUrl, Slot, QSize, QObject, Signal
 from PySide6.QtGui import QAction, QIcon 
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
     QWidget,
     QSplitter,
-    QStatusBar
+    QStatusBar,
+    QLabel
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWebChannel import QWebChannel
 
 from local_http_server import LocalHttpServer
+
+# --- Define the Bridge class ---
+class MapBridge(QObject):
+    """
+    A bridge object to facilitate communication from JavaScript to Python.
+    It exposes 'slots' that can be called from JS and emits 'signals'
+    that the main application can connect to.
+    """
+    # Signal that will carry the coordinate string to the main window
+    coordinates_changed = Signal(str)
+
+    @Slot(float, float)
+    def on_mouse_move(self, lat, lng):
+        """
+        A slot that is called from JavaScript whenever the mouse moves over the map.
+        
+        Args:
+            lat (float): Latitude of the mouse cursor.
+            lng (float): Longitude of the mouse cursor.
+        """
+        # Format the coordinates to a fixed number of decimal places
+        formatted_coords = f"Lat: {lat:.5f}, Lon: {lng:.5f}"
+        # Emit the signal with the formatted string
+        self.coordinates_changed.emit(formatted_coords)
+        
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -44,6 +70,8 @@ class MainWindow(QMainWindow):
         self._setup_menu()
         self._setup_toolbar()
         self._setup_statusbar()
+
+        self._setup_web_channel()
 
     @Slot(str, int)
     def load_map_url(self, host, port):
@@ -108,6 +136,30 @@ class MainWindow(QMainWindow):
         
         self.setStatusBar(QStatusBar(self))       
         self.statusBar().showMessage("Welcome to the Copernicus DEM Downloader!", 5000)
+        
+        self.coord_label = QLabel("Lat: N/A, Lon: N/A")
+        self.statusBar().addPermanentWidget(self.coord_label)
+
+    # --- Method to set up the QWebChannel ---
+    def _setup_web_channel(self):
+        """Initializes the QWebChannel to enable JS-to-Python communication."""
+        # The QWebChannel needs a transport object, which is the QWebEnginePage
+        self.channel = QWebChannel(self.map_view.page())
+        # The web page must be told which channel to use
+        self.map_view.page().setWebChannel(self.channel)
+
+        # Create an instance of our bridge object
+        self.bridge = MapBridge()
+        # Register the bridge object with a specific name ("backend") that JavaScript will use
+        self.channel.registerObject("backend", self.bridge)
+
+        # Connect the signal from the bridge to a slot in our main window
+        self.bridge.coordinates_changed.connect(self.update_coord_label)
+
+    # --- The slot that updates the status bar label ---
+    @Slot(str)
+    def update_coord_label(self, text):
+        self.coord_label.setText(text)    
 
     # --- The slot that responds to the toggle action ---
     @Slot(bool)
