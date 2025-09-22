@@ -21,3 +21,11 @@ html, body {
     text-shadow: 0 0 2px white;
     white-space: nowrap;
 }
+
+/* Style for the selected tile highlight polygon */
+.leaflet-interactive.selection-polygon {
+    fill-color: #0078d4; /* A nice blue */
+    fill-opacity: 0.3;
+    stroke-width: 1;
+    stroke-color: #005a9e;
+}
