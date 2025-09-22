@@ -1,7 +1,9 @@
 // --- Global Variables ---
-let gridLayer = null; // This will hold our grid lines layer
-let labelLayer = null; // This will hold our text labels
-let isGridVisible = true; // The initial state of the grid
+let gridLayer = null;
+let labelLayer = null;
+let selectionLayer = null; // NEW: Layer for highlight polygons
+let isGridVisible = true;
+let highlightedTiles = {}; // NEW: Object to keep track of highlight layers
 
 // --- Initialize the Map ---
 const map = L.map('map').setView([41.9028, 12.4964], 6);
@@ -11,97 +13,37 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
 }).addTo(map);
 
-// --- Grid Drawing Logic ---
-
-/**
- * Updates and redraws the 1x1 degree grid based on the current map view.
- */
+// --- Grid and Label Drawing Logic ---
+// ... (The entire updateGrid function remains exactly the same as before) ...
 function updateGrid() {
-    
-    // Clear existing layers before redrawing
     if (gridLayer) gridLayer.clearLayers();
     if (labelLayer) labelLayer.clearLayers();
-    
-    // Don't draw if zoomed too far out
-    if (map.getZoom() < 4) {
-        return;
-    }
-
-    // Get the geographical bounds of the visible map area
+    if (map.getZoom() < 4) return;
     const bounds = map.getBounds();
-    const north = Math.ceil(bounds.getNorth());
-    const south = Math.floor(bounds.getSouth());
-    const east = Math.ceil(bounds.getEast());
-    const west = Math.floor(bounds.getWest());
-
-    const gridLines = [];
-    const gridLabels = [];
-
-    // --- Create Vertical Lines (Longitude) and their labels ---
+    const north = Math.ceil(bounds.getNorth()), south = Math.floor(bounds.getSouth());
+    const east = Math.ceil(bounds.getEast()), west = Math.floor(bounds.getWest());
+    const gridLines = [], gridLabels = [];
     for (let lon = west; lon <= east; lon++) {
-        const line = L.polyline([[north + 1, lon], [south - 1, lon]], {
-            color: '#555', weight: 1, opacity: 0.7, interactive: false
-        });
-        gridLines.push(line);
-
-        // Add a label for the longitude line at the top of the screen
+        gridLines.push(L.polyline([[north + 1, lon], [south - 1, lon]], { color: '#555', weight: 1, opacity: 0.7, interactive: false }));
         const labelText = lon > 0 ? `${lon}°E` : lon < 0 ? `${Math.abs(lon)}°W` : `${lon}°`;
-        const labelPos = [bounds.getNorth() - 0.1, lon + 0.05]; // Position slightly inside the view
-        const label = L.marker(labelPos, {
-            icon: L.divIcon({
-                className: 'grid-label',
-                html: labelText
-            }),
-            interactive: false
-        });
-        gridLabels.push(label);
+        gridLabels.push(L.marker([bounds.getNorth() - 0.1, lon + 0.05], { icon: L.divIcon({ className: 'grid-label', html: labelText }), interactive: false }));
     }
-
-    // --- Create Horizontal Lines (Latitude) and their labels ---
     for (let lat = south; lat <= north; lat++) {
-        const line = L.polyline([[lat, west - 1], [lat, east + 1]], {
-            color: '#555', weight: 1, opacity: 0.7, interactive: false
-        });
-        gridLines.push(line);
-
-        // Add a label for the latitude line on the left of the screen
+        gridLines.push(L.polyline([[lat, west - 1], [lat, east + 1]], { color: '#555', weight: 1, opacity: 0.7, interactive: false }));
         const labelText = lat > 0 ? `${lat}°N` : lat < 0 ? `${Math.abs(lat)}°S` : `${lat}°`;
-        const labelPos = [lat + 0.05, bounds.getWest() + 0.1]; // Position slightly inside the view
-        const label = L.marker(labelPos, {
-            icon: L.divIcon({
-                className: 'grid-label',
-                html: labelText
-            }),
-            interactive: false
-        });
-        gridLabels.push(label);
+        gridLabels.push(L.marker([lat + 0.05, bounds.getWest() + 0.1], { icon: L.divIcon({ className: 'grid-label', html: labelText }), interactive: false }));
     }
-
-    // --- Manage Layers ---
-    // Initialize layers if they don't exist
-    if (!gridLayer) {
-        gridLayer = L.layerGroup().addTo(map);
-    }
-    if (!labelLayer) {
-        labelLayer = L.layerGroup().addTo(map);
-    }
-    
-    // Add new lines and labels to their respective layers
+    if (!gridLayer) gridLayer = L.layerGroup().addTo(map);
+    if (!labelLayer) labelLayer = L.layerGroup().addTo(map);
     gridLines.forEach(line => gridLayer.addLayer(line));
     gridLabels.forEach(label => labelLayer.addLayer(label));
-
-    // Ensure the visibility matches the toggle state
     toggleGridVisibility(isGridVisible);
 }
 
-/**
- * Toggles the visibility of the grid and label layers.
- * @param {boolean} isVisible - True to show, false to hide.
- */
 function toggleGridVisibility(isVisible) {
+    // ... (This function also remains exactly the same) ...
     isGridVisible = isVisible;
     if (!gridLayer || !labelLayer) return;
-
     if (isGridVisible) {
         map.addLayer(gridLayer);
         map.addLayer(labelLayer);
@@ -111,36 +53,68 @@ function toggleGridVisibility(isVisible) {
     }
 }
 
+// --- NEW: Highlight Drawing Logic (called from Python) ---
+/**
+ * Draws a highlight rectangle for a given tile.
+ * @param {number} lat - The integer latitude of the tile's SW corner.
+ * @param {number} lon - The integer longitude of the tile's SW corner.
+ */
+function addHighlight(lat, lon) {
+    if (!selectionLayer) {
+        selectionLayer = L.layerGroup().addTo(map);
+    }
+    const bounds = [[lat, lon], [lat + 1, lon + 1]];
+    const rect = L.rectangle(bounds, {
+        className: 'selection-polygon', // Our custom CSS class
+        interactive: false // The highlight itself shouldn't be clickable
+    });
+    
+    const tileId = `${lat}_${lon}`;
+    highlightedTiles[tileId] = rect; // Store the layer
+    selectionLayer.addLayer(rect);
+}
+
+/**
+ * Removes a highlight rectangle for a given tile.
+ * @param {number} lat - The integer latitude of the tile's SW corner.
+ * @param {number} lon - The integer longitude of the tile's SW corner.
+ */
+function removeHighlight(lat, lon) {
+    const tileId = `${lat}_${lon}`;
+    const rect = highlightedTiles[tileId];
+    if (rect && selectionLayer) {
+        selectionLayer.removeLayer(rect);
+        delete highlightedTiles[tileId]; // Clean up the stored layer
+    }
+}
+
 // --- Event Listeners ---
-// Redraw the grid whenever the user finishes moving or zooming the map.
 map.on('moveend', updateGrid);
-
-// --- Initial Grid Draw ---
-// Perform an initial draw when the script loads.
-updateGrid();
-
+updateGrid(); // Initial draw
 
 // --- QWebChannel Initialization ---
-// This code block sets up the connection from JavaScript to Python.
 document.addEventListener("DOMContentLoaded", () => {
     new QWebChannel(qt.webChannelTransport, function(channel) {
-        // 'backend' is the name we registered in our Python code.
-        // window.backend is now a JavaScript object that mirrors our MapBridge Python object.
         window.backend = channel.objects.backend;
 
-        // Now that the bridge is set up, we can add the mouse listener.
         if (window.backend) {
-            map.on('mousemove', function(e) {
-                const zoom = map.getZoom();
-                window.backend.on_mouse_move(e.latlng.lat, e.latlng.lng, zoom);
+            // Mouse move for status bar
+            map.on('mousemove', e => {
+                window.backend.on_mouse_move(e.latlng.lat, e.latlng.lng, map.getZoom());
+            });
+            map.on('zoomend', () => {
+                const center = map.getCenter();
+                window.backend.on_mouse_move(center.lat, center.lng, map.getZoom());
             });
 
-            // Also update on zoom change, so the level is always correct even if the mouse isn't moving.
-            map.on('zoomend', function() {
-                const center = map.getCenter();
-                const zoom = map.getZoom();
-                window.backend.on_mouse_move(center.lat, center.lng, zoom);
+            // --- NEW: Map click for tile selection ---
+            map.on('click', e => {
+                const lat = Math.floor(e.latlng.lat);
+                const lon = Math.floor(e.latlng.lng);
+                // Call the new slot on our Python bridge object
+                window.backend.on_tile_clicked(lat, lon);
             });
+
         } else {
             console.error("Backend object not found in QWebChannel.");
         }

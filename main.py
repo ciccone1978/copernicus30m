@@ -25,6 +25,7 @@ class MapBridge(QObject):
     """
     # Signal that will carry the coordinate string and zoom level to the main window
     coordinates_changed = Signal(str, int)
+    tile_clicked = Signal(int, int)
 
     @Slot(float, float, int)
     def on_mouse_move(self, lat, lng, zoom):
@@ -36,12 +37,13 @@ class MapBridge(QObject):
             lng (float): Longitude of the mouse cursor.
             zoom (int): The current zoom level of the map.
         """
-        # Format the coordinates to a fixed number of decimal places
         formatted_coords = f"Lat: {lat:.5f}, Lon: {lng:.5f}"
-        
-        # Emit the signal
         self.coordinates_changed.emit(formatted_coords, zoom)
         
+    # --- Slot that receives the raw tile click from JS ---
+    @Slot(int, int)
+    def on_tile_clicked(self, lat, lon):
+        self.tile_clicked.emit(lat, lon)    
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -72,7 +74,9 @@ class MainWindow(QMainWindow):
         self._setup_menu()
         self._setup_toolbar()
         self._setup_statusbar()
-
+        
+        self.selected_tiles = set()
+        # --- Setup the Web Channel for JS-Python communication ---
         self._setup_web_channel()
 
     @Slot(str, int)
@@ -158,6 +162,7 @@ class MainWindow(QMainWindow):
         self.channel.registerObject("backend", self.bridge)
 
         self.bridge.coordinates_changed.connect(self.update_coord_label)
+        self.bridge.tile_clicked.connect(self.on_tile_selected)
 
     # --- The slot that updates the status bar label ---
     @Slot(str)
@@ -183,6 +188,32 @@ class MainWindow(QMainWindow):
         js_code = f"toggleGridVisibility({str(is_checked).lower()});"
         self.map_view.page().runJavaScript(js_code)
 
+    # --- The main logic handler for tile selection ---
+    @Slot(int, int)
+    def on_tile_selected(self, lat, lon):
+        """
+        Manages the state of selected tiles when a tile is clicked on the map.
+        
+        Args:
+            lat (int): Integer latitude of the clicked tile's SW corner.
+            lon (int): Integer longitude of the clicked tile's SW corner.
+        """
+        tile = (lat, lon) # Use a tuple to represent the tile
+
+        if tile in self.selected_tiles:
+            # --- Tile is already selected, so DESELECT it ---
+            self.selected_tiles.remove(tile)
+            print(f"Deselected tile: {tile}. Total selected: {len(self.selected_tiles)}")
+            # Command JavaScript to remove the highlight
+            js_code = f"removeHighlight({lat}, {lon});"
+            self.map_view.page().runJavaScript(js_code)
+        else:
+            # --- Tile is not selected, so SELECT it ---
+            self.selected_tiles.add(tile)
+            print(f"Selected tile: {tile}. Total selected: {len(self.selected_tiles)}")
+            # Command JavaScript to add the highlight
+            js_code = f"addHighlight({lat}, {lon});"
+            self.map_view.page().runJavaScript(js_code)
 
 
 
