@@ -9,7 +9,12 @@ from PySide6.QtWidgets import (
     QWidget,
     QSplitter,
     QStatusBar,
-    QLabel
+    QLabel,
+    QVBoxLayout,
+    QListWidget,
+    QPushButton,
+    QProgressBar,
+    QListWidgetItem
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
@@ -61,7 +66,8 @@ class MainWindow(QMainWindow):
         # --- Create UI components ---
         main_splitter = QSplitter(Qt.Horizontal)
         self.map_view = QWebEngineView()
-        self.sidebar_panel = QWidget()
+
+        self.sidebar_panel = self._create_sidebar()
         
         main_splitter.addWidget(self.map_view)
         main_splitter.addWidget(self.sidebar_panel)
@@ -78,6 +84,49 @@ class MainWindow(QMainWindow):
         self.selected_tiles = set()
         # --- Setup the Web Channel for JS-Python communication ---
         self._setup_web_channel()
+
+    # --- A dedicated method to create and return the sidebar widget ---
+    def _create_sidebar(self):
+        """Creates the sidebar widget with all its UI elements."""
+        # Use a QWidget as a container for the layout
+        container = QWidget()
+        
+        # Use a Vertical Box Layout
+        layout = QVBoxLayout()
+        container.setLayout(layout)
+
+        # 1. Title Label
+        title_label = QLabel("Selected Tiles")
+        # You can style it for better appearance
+        font = title_label.font()
+        font.setPointSize(14)
+        font.setBold(True)
+        title_label.setFont(font)
+        
+        # 2. List Widget
+        self.tile_list_widget = QListWidget()
+        self.tile_list_widget.setToolTip("List of DEM tiles selected on the map.")
+
+        # 3. Download Button
+        self.download_button = QPushButton("Download Selected Tiles")
+        self.download_button.setToolTip("Download all tiles in the list.")
+        self.download_button.setEnabled(False) # Initially disabled until tiles are selected
+
+        # 4. Progress Bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100) # Percentage based
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setToolTip("Download progress")
+        self.progress_bar.hide() # Hide it until a download starts
+
+        # Add widgets to the layout in order
+        layout.addWidget(title_label)
+        layout.addWidget(self.tile_list_widget)
+        layout.addWidget(self.download_button)
+        layout.addWidget(self.progress_bar)
+
+        return container    
 
     @Slot(str, int)
     def load_map_url(self, host, port):
@@ -188,6 +237,14 @@ class MainWindow(QMainWindow):
         js_code = f"toggleGridVisibility({str(is_checked).lower()});"
         self.map_view.page().runJavaScript(js_code)
 
+    # --- Helper function to format the tile name ---
+    def format_tile_name(self, lat, lon):
+        """Formats lat/lon coordinates into the standard Copernicus tile name."""
+        lat_str = f"N{abs(lat):02d}" if lat >= 0 else f"S{abs(lat):02d}"
+        lon_str = f"E{abs(lon):03d}" if lon >= 0 else f"W{abs(lon):03d}"
+        # We only need the base name for the list, not the full S3 key
+        return f"Copernicus_DSM_COG_10_{lat_str}_00_{lon_str}_00_DEM"
+
     # --- The main logic handler for tile selection ---
     @Slot(int, int)
     def on_tile_selected(self, lat, lon):
@@ -199,6 +256,7 @@ class MainWindow(QMainWindow):
             lon (int): Integer longitude of the clicked tile's SW corner.
         """
         tile = (lat, lon) # Use a tuple to represent the tile
+        tile_name = self.format_tile_name(lat, lon)
 
         if tile in self.selected_tiles:
             # --- Tile is already selected, so DESELECT it ---
@@ -207,6 +265,13 @@ class MainWindow(QMainWindow):
             # Command JavaScript to remove the highlight
             js_code = f"removeHighlight({lat}, {lon});"
             self.map_view.page().runJavaScript(js_code)
+            
+            # --- Remove from sidebar list ---
+            # Find the item in the list widget and remove it.
+            items = self.tile_list_widget.findItems(tile_name, Qt.MatchExactly)
+            if items:
+                row = self.tile_list_widget.row(items[0])
+                self.tile_list_widget.takeItem(row)
         else:
             # --- Tile is not selected, so SELECT it ---
             self.selected_tiles.add(tile)
@@ -214,6 +279,18 @@ class MainWindow(QMainWindow):
             # Command JavaScript to add the highlight
             js_code = f"addHighlight({lat}, {lon});"
             self.map_view.page().runJavaScript(js_code)
+
+            # --- Add to sidebar list ---
+            # Create a QListWidgetItem and add it to the list widget.
+            list_item = QListWidgetItem(tile_name)
+            self.tile_list_widget.addItem(list_item)
+            # You can also store the raw coordinates in the item for later use
+            list_item.setData(Qt.UserRole, tile)
+
+            # --- Update the state of the download button ---
+            # The button should only be enabled if there is at least one item selected.
+            is_list_empty = self.tile_list_widget.count() == 0
+            self.download_button.setEnabled(not is_list_empty)
 
 
 
