@@ -131,9 +131,15 @@ document.addEventListener("DOMContentLoaded", () => {
         // Now that the bridge is set up, we can add the mouse listener.
         if (window.backend) {
             map.on('mousemove', function(e) {
-                // Call the 'on_mouse_move' slot on our Python MapBridge object
-                // and pass the latitude and longitude as arguments.
-                window.backend.on_mouse_move(e.latlng.lat, e.latlng.lng);
+                const zoom = map.getZoom();
+                window.backend.on_mouse_move(e.latlng.lat, e.latlng.lng, zoom);
+            });
+
+            // Also update on zoom change, so the level is always correct even if the mouse isn't moving.
+            map.on('zoomend', function() {
+                const center = map.getCenter();
+                const zoom = map.getZoom();
+                window.backend.on_mouse_move(center.lat, center.lng, zoom);
             });
         } else {
             console.error("Backend object not found in QWebChannel.");

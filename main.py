@@ -23,22 +23,24 @@ class MapBridge(QObject):
     It exposes 'slots' that can be called from JS and emits 'signals'
     that the main application can connect to.
     """
-    # Signal that will carry the coordinate string to the main window
-    coordinates_changed = Signal(str)
+    # Signal that will carry the coordinate string and zoom level to the main window
+    coordinates_changed = Signal(str, int)
 
-    @Slot(float, float)
-    def on_mouse_move(self, lat, lng):
+    @Slot(float, float, int)
+    def on_mouse_move(self, lat, lng, zoom):
         """
         A slot that is called from JavaScript whenever the mouse moves over the map.
         
         Args:
             lat (float): Latitude of the mouse cursor.
             lng (float): Longitude of the mouse cursor.
+            zoom (int): The current zoom level of the map.
         """
         # Format the coordinates to a fixed number of decimal places
         formatted_coords = f"Lat: {lat:.5f}, Lon: {lng:.5f}"
-        # Emit the signal with the formatted string
-        self.coordinates_changed.emit(formatted_coords)
+        
+        # Emit the signal
+        self.coordinates_changed.emit(formatted_coords, zoom)
         
 
 class MainWindow(QMainWindow):
@@ -138,28 +140,30 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Welcome to the Copernicus DEM Downloader!", 5000)
         
         self.coord_label = QLabel("Lat: N/A, Lon: N/A")
+        self.zoom_label = QLabel("Zoom: N/A")
+        self.zoom_label.setContentsMargins(10, 0, 5, 0) 
+
+        self.statusBar().addPermanentWidget(self.zoom_label)
         self.statusBar().addPermanentWidget(self.coord_label)
+
 
     # --- Method to set up the QWebChannel ---
     def _setup_web_channel(self):
         """Initializes the QWebChannel to enable JS-to-Python communication."""
-        # The QWebChannel needs a transport object, which is the QWebEnginePage
+        
         self.channel = QWebChannel(self.map_view.page())
-        # The web page must be told which channel to use
         self.map_view.page().setWebChannel(self.channel)
 
-        # Create an instance of our bridge object
         self.bridge = MapBridge()
-        # Register the bridge object with a specific name ("backend") that JavaScript will use
         self.channel.registerObject("backend", self.bridge)
 
-        # Connect the signal from the bridge to a slot in our main window
         self.bridge.coordinates_changed.connect(self.update_coord_label)
 
     # --- The slot that updates the status bar label ---
     @Slot(str)
-    def update_coord_label(self, text):
-        self.coord_label.setText(text)    
+    def update_coord_label(self, coords_text, zoom_level):
+        self.coord_label.setText(coords_text)    
+        self.zoom_label.setText(f"Zoom: {zoom_level}")
 
     # --- The slot that responds to the toggle action ---
     @Slot(bool)
