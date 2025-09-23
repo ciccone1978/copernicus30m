@@ -22,7 +22,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
 
 from local_http_server import LocalHttpServer
-from download_worker import DownloadWorker
+from download_worker import DownloadWorker, format_tile_s3_key
 
 # --- Define the Bridge class ---
 class MapBridge(QObject):
@@ -163,6 +163,35 @@ class MainWindow(QMainWindow):
 
         if not save_path: # User cancelled the dialog
             return
+        
+        # --- Pre-flight check for existing files on the main thread ---
+        existing_files = []
+        for lat, lon in self.selected_tiles:
+            s3_key = format_tile_s3_key(lat, lon)
+            local_path = os.path.join(save_path, os.path.basename(s3_key))
+            if os.path.exists(local_path):
+                existing_files.append(os.path.basename(s3_key))
+
+        overwrite_mode = 'overwrite' # Default mode
+        if existing_files:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Files Already Exist")
+            msg_box.setIcon(QMessageBox.Question)
+            msg_box.setText(f"{len(existing_files)} of the selected files already exist in the destination folder.")
+            msg_box.setInformativeText("What would you like to do?")
+            
+            overwrite_button = msg_box.addButton("Overwrite All", QMessageBox.AcceptRole)
+            skip_button = msg_box.addButton("Skip Existing", QMessageBox.DestructiveRole)
+            cancel_button = msg_box.addButton("Cancel Download", QMessageBox.RejectRole)
+            
+            msg_box.exec()
+
+            if msg_box.clickedButton() == overwrite_button:
+                overwrite_mode = 'overwrite'
+            elif msg_box.clickedButton() == skip_button:
+                overwrite_mode = 'skip'
+            else: # User clicked Cancel or closed the dialog
+                return
 
         # --- UI State: Preparing for download ---
         self.progress_bar.setValue(0)
@@ -178,7 +207,7 @@ class MainWindow(QMainWindow):
         self.download_button.clicked.disconnect(self.start_download)
 
         # --- Create and start the worker ---
-        self.worker = DownloadWorker(list(self.selected_tiles), save_path)
+        self.worker = DownloadWorker(list(self.selected_tiles), save_path, overwrite_mode)
 
         self.download_button.clicked.connect(self.worker.stop)
         self.worker.file_progress.connect(self.update_file_progress_status)

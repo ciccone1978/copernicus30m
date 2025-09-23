@@ -22,17 +22,19 @@ class DownloadWorker(QThread):
     error_occurred = Signal(str)
     finished = Signal()
 
-    def __init__(self, tiles_to_download, save_path):
+    def __init__(self, tiles_to_download, save_path, overwrite_mode='overwrite'):
         """
         Args:
             tiles_to_download (list): A list of (lat, lon) tuples.
             save_path (str): The absolute path to the directory to save files in.
+            overwrite_mode (str): Can be 'overwrite' or 'skip'.
         """
         super().__init__()
         self.tiles = tiles_to_download
         self.save_path = save_path
         self.s3_client = None
         self._is_stopped = False
+        self.overwrite_mode = overwrite_mode
 
     def run(self):
         """The main entry point for the thread's execution."""
@@ -42,45 +44,41 @@ class DownloadWorker(QThread):
             # --- Pre-flight check to calculate total size ---
             self.tile_finished.emit("Calculating total download size...")
             grand_total_size = 0
+            tiles_to_actually_download = []
             for lat, lon in self.tiles:
-                if self._is_stopped: 
-                    break
-
                 s3_key = format_tile_s3_key(lat, lon)
                 local_path = os.path.join(self.save_path, os.path.basename(s3_key))
-                # Don't include size of files that already exist
-                if not os.path.exists(local_path):
-                    try:
-                        response = self.s3_client.head_object(Bucket="copernicus-dem-30m", Key=s3_key)
-                        grand_total_size += int(response.get('ContentLength', 0))
-                    except botocore.exceptions.ClientError:
-                        pass 
-            
-            if self._is_stopped:
-                self.tile_finished.emit("Download cancelled during size calculation.")
-                self.finished.emit()
-                return
+
+                if self.overwrite_mode == 'skip' and os.path.exists(local_path):
+                    continue # Skip this file for size calculation
+                
+                tiles_to_actually_download.append((lat, lon))
+                try:
+                    response = self.s3_client.head_object(Bucket="copernicus-dem-30m", Key=s3_key)
+                    grand_total_size += int(response.get('ContentLength', 0))
+                except botocore.exceptions.ClientError:
+                    pass 
+
+                if self._is_stopped:
+                    self.tile_finished.emit("Download cancelled during size calculation.")
+                    self.finished.emit()
+                    return
 
             # --- Main Download Loop ---
             cumulative_bytes_downloaded = 0
-            total_tiles = len(self.tiles)
+            total_tiles_to_process = len(tiles_to_actually_download)
                         
-            for i, (lat, lon) in enumerate(self.tiles):
+            for i, (lat, lon) in enumerate(tiles_to_actually_download):
                 if self._is_stopped:
                     self.tile_finished.emit("Download cancelled by user.")
                     break
                 
-                self.file_progress.emit(i + 1, total_tiles)
-
+                self.file_progress.emit(i + 1, total_tiles_to_process)
                 s3_key = format_tile_s3_key(lat, lon)
                 file_name = os.path.basename(s3_key)
                 local_path = os.path.join(self.save_path, file_name)
 
                 try:
-                    if os.path.exists(local_path):
-                        self.tile_finished.emit(f"Skipped (already exists): {file_name}")
-                        continue
-                        
                     self.tile_finished.emit(f"Downloading: {file_name}...")
                     s3_object = self.s3_client.get_object(Bucket="copernicus-dem-30m", Key=s3_key)
                     streaming_body = s3_object['Body']
@@ -107,9 +105,6 @@ class DownloadWorker(QThread):
                                 
                 except botocore.exceptions.ClientError as e:
                     self.error_occurred.emit(f"Error for {file_name}: {e}")
-                  
-                if self._is_stopped:
-                    break
 
         except Exception as e:
             self.error_occurred.emit(f"A critical error occurred: {e}")
