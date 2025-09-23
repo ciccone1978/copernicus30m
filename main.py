@@ -63,6 +63,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Copernicus DEM Tile Downloader")
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
 
+        self.download_icon = QIcon(os.path.join(self.base_dir, "icons", "download-cloud.png"))
+        self.stop_icon = QIcon(os.path.join(self.base_dir, "icons", "cross-circle.png"))
+
         # --- Start the local HTTP server ---
         self.map_dir_path = os.path.join(self.base_dir, "map")
         self.http_server = LocalHttpServer(port=8001, serve_dir=self.map_dir_path)
@@ -115,6 +118,7 @@ class MainWindow(QMainWindow):
         # 3. Download Button
         self.download_button = QPushButton("Download Selected Tiles")
         self.download_button.setToolTip("Download all tiles in the list.")
+        self.download_button.setIcon(self.download_icon)
         self.download_button.setEnabled(False)
         self.download_button.clicked.connect(self.start_download)
 
@@ -162,25 +166,42 @@ class MainWindow(QMainWindow):
 
         # --- UI State: Preparing for download ---
         self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("%p% - %v / %m Bytes")
         self.progress_bar.show()
-        self.download_button.setEnabled(False)
+
         self.tile_list_widget.setEnabled(False) # Prevent changes during download
         self.statusBar().showMessage("Starting download...")
 
+        # --- Change button state to "Stop" ---
+        self.download_button.setText("Stop Download")
+        self.download_button.setIcon(self.stop_icon)
+        self.download_button.clicked.disconnect(self.start_download)
+
         # --- Create and start the worker ---
         self.worker = DownloadWorker(list(self.selected_tiles), save_path)
-        self.worker.progress_updated.connect(self.update_progress)
+
+        self.download_button.clicked.connect(self.worker.stop)
+        self.worker.file_progress.connect(self.update_file_progress_status)
+        self.worker.total_progress_updated.connect(self.update_byte_progress_bar)
         self.worker.tile_finished.connect(self.update_status_message)
         self.worker.error_occurred.connect(self.show_error_message)
         self.worker.finished.connect(self.on_download_finished)
+       
         self.worker.start()
 
+    # --- Slot for byte-based progress bar ---
     @Slot(int, int)
-    def update_progress(self, current_value, total_value):
-        """Updates the progress bar."""
-        self.progress_bar.setMaximum(total_value)
-        self.progress_bar.setValue(current_value)
+    def update_byte_progress_bar(self, bytes_downloaded, total_bytes):
+        """Updates the progress bar based on bytes."""
+        self.progress_bar.setMaximum(total_bytes)
+        self.progress_bar.setValue(bytes_downloaded)
 
+    # --- Slot for file count status message ---
+    @Slot(int, int)
+    def update_file_progress_status(self, current_file, total_files):
+        """Updates the status bar with the file count."""
+        self.statusBar().showMessage(f"Processing file {current_file} of {total_files}...")
+    
     @Slot(str)
     def update_status_message(self, message):
         """Shows a temporary message in the status bar."""
@@ -189,19 +210,37 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def show_error_message(self, message):
         """Shows an error in the status bar or a dialog."""
-        self.statusBar().showMessage(message, 10000) # Show errors for longer
-        # For more critical errors, you could use a QMessageBox:
-        # QMessageBox.warning(self, "Download Error", message)
+        self.statusBar().showMessage(message, 10000)
 
     @Slot()
     def on_download_finished(self):
-        """Called when the worker thread has finished."""
-        self.statusBar().showMessage("All downloads completed!", 10000)
+        """Called when the worker thread has finished, either by completion or cancellation."""
+        was_cancelled = self.worker._is_stopped if self.worker else False
+        
+        if was_cancelled:
+            final_message = "Download cancelled."
+        else:
+            final_message = "All downloads completed!"
+            QMessageBox.information(self, "Download Complete", "All selected tiles have been processed.")
+        
+        self.statusBar().showMessage(final_message, 10000)
+        self.progress_bar.setFormat("%p%")
         self.progress_bar.hide()
-        self.download_button.setEnabled(True)
         self.tile_list_widget.setEnabled(True)
         self.worker = None # Allow the worker to be garbage collected
-        QMessageBox.information(self, "Download Complete", "All selected tiles have been processed.")    
+ 
+        # --- Revert the button back to its "Download" state ---
+        self.download_button.setText("Download Selected Tiles")
+        self.download_button.setIcon(self.download_icon)
+        # Disconnect from any previous connections (like stop) and reconnect to start
+        try:
+            self.download_button.clicked.disconnect()
+        except RuntimeError:
+            # This can happen if no connections exist, it's safe to ignore
+            pass
+        self.download_button.clicked.connect(self.start_download)
+        # Re-enable the button only if tiles are still selected
+        self.download_button.setEnabled(self.tile_list_widget.count() > 0)
 
     def closeEvent(self, event):
         """Ensure worker is stopped if running when window is closed."""

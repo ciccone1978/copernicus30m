@@ -15,13 +15,11 @@ class DownloadWorker(QThread):
     """
     A QThread worker for downloading Copernicus DEM tiles from AWS S3.
     """
-    # Signal arguments: (current_value, total_value)
-    progress_updated = Signal(int, int)
-    # Signal argument: (message_string)
+    
+    file_progress = Signal(int, int)
+    total_progress_updated = Signal(int, int)
     tile_finished = Signal(str)
-    # Signal argument: (error_message_string)
     error_occurred = Signal(str)
-    # Signal with no arguments
     finished = Signal()
 
     def __init__(self, tiles_to_download, save_path):
@@ -34,37 +32,95 @@ class DownloadWorker(QThread):
         self.tiles = tiles_to_download
         self.save_path = save_path
         self.s3_client = None
+        self._is_stopped = False
 
     def run(self):
         """The main entry point for the thread's execution."""
         try:
             self.s3_client = boto3.client('s3', config=botocore.client.Config(signature_version=botocore.UNSIGNED))
-            total_tiles = len(self.tiles)
             
+            # --- Pre-flight check to calculate total size ---
+            self.tile_finished.emit("Calculating total download size...")
+            grand_total_size = 0
+            for lat, lon in self.tiles:
+                if self._is_stopped: 
+                    break
+
+                s3_key = format_tile_s3_key(lat, lon)
+                local_path = os.path.join(self.save_path, os.path.basename(s3_key))
+                # Don't include size of files that already exist
+                if not os.path.exists(local_path):
+                    try:
+                        response = self.s3_client.head_object(Bucket="copernicus-dem-30m", Key=s3_key)
+                        grand_total_size += int(response.get('ContentLength', 0))
+                    except botocore.exceptions.ClientError:
+                        pass 
+            
+            if self._is_stopped:
+                self.tile_finished.emit("Download cancelled during size calculation.")
+                self.finished.emit()
+                return
+
+            # --- Main Download Loop ---
+            cumulative_bytes_downloaded = 0
+            total_tiles = len(self.tiles)
+                        
             for i, (lat, lon) in enumerate(self.tiles):
+                if self._is_stopped:
+                    self.tile_finished.emit("Download cancelled by user.")
+                    break
+                
+                self.file_progress.emit(i + 1, total_tiles)
+
                 s3_key = format_tile_s3_key(lat, lon)
                 file_name = os.path.basename(s3_key)
                 local_path = os.path.join(self.save_path, file_name)
 
                 try:
-                    # Check if file already exists
                     if os.path.exists(local_path):
                         self.tile_finished.emit(f"Skipped (already exists): {file_name}")
-                    else:
-                        self.tile_finished.emit(f"Downloading: {file_name}...")
-                        self.s3_client.download_file("copernicus-dem-30m", s3_key, local_path)
-                        self.tile_finished.emit(f"Finished: {file_name}")
+                        continue
+                        
+                    self.tile_finished.emit(f"Downloading: {file_name}...")
+                    s3_object = self.s3_client.get_object(Bucket="copernicus-dem-30m", Key=s3_key)
+                    streaming_body = s3_object['Body']
+                        
+                    with open(local_path, 'wb') as f:
+                        # Read and write in 1MB chunks
+                        for chunk in streaming_body.iter_chunks(chunk_size=1024 * 1024):
+                            
+                            if self._is_stopped:
+                                # Clean up the partially downloaded file
+                                f.close()
+                                streaming_body.close()
+                                os.remove(local_path)
+                                self.tile_finished.emit(f"Cancelled: {file_name}")
+                                break
+                                
+                            f.write(chunk)
+                            chunk_size = len(chunk)
+                            cumulative_bytes_downloaded += chunk_size                           
+                            self.total_progress_updated.emit(cumulative_bytes_downloaded, grand_total_size)
 
+                        else:
+                            self.tile_finished.emit(f"Finished: {file_name}")
+                                
                 except botocore.exceptions.ClientError as e:
-                    if e.response['Error']['Code'] == "404":
-                        self.error_occurred.emit(f"Error: Tile not found on server: {file_name}")
-                    else:
-                        self.error_occurred.emit(f"Network Error for {file_name}: {e}")
-                
-                # Update overall progress after each attempt
-                self.progress_updated.emit(i + 1, total_tiles)
+                    self.error_occurred.emit(f"Error for {file_name}: {e}")
+                  
+                if self._is_stopped:
+                    break
 
         except Exception as e:
             self.error_occurred.emit(f"A critical error occurred: {e}")
         finally:
             self.finished.emit()
+
+
+    def stop(self):
+        """
+        Sets the stop flag to True. The running loop will check this flag
+        and exit gracefully.
+        """
+        print("Stop signal received by worker.")
+        self._is_stopped = True        
