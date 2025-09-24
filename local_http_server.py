@@ -1,8 +1,11 @@
 import os
+import logging
 import functools
 from http.server import SimpleHTTPRequestHandler
 from socketserver import TCPServer
 from PySide6.QtCore import QThread, Signal
+
+logger = logging.getLogger(__name__)
 
 # --- NEW: Create a TCPServer subclass that allows address reuse ---
 class ReusableTCPServer(TCPServer):
@@ -36,18 +39,18 @@ class LocalHttpServer(QThread):
             
             actual_host, actual_port = self.httpd.server_address
             
-            print(f"Starting local server at http://{actual_host}:{actual_port}")
+            logging.info(f"Starting local server at http://{actual_host}:{actual_port}")
             self.server_started.emit(actual_host, actual_port)
             self.httpd.serve_forever()
-            print("Server loop has ended.") # This will print when shutdown() is called
+            logging.info("Server loop has ended.") # This will print when shutdown() is called
 
         except Exception as e:
-            print(f"Error starting server: {e}")
+            logging.error(f"Error starting server: {e}")
             self.httpd = None
 
     def stop(self):
         """Stops the server from the main thread."""
         if self.httpd:
-            print("Stopping local server...")
+            logging.info("Stopping local server...")
             self.httpd.shutdown()
             self.httpd.server_close()

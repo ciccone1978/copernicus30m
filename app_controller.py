@@ -1,4 +1,5 @@
 import os
+import logging
 from PySide6.QtCore import QObject, Slot, QUrl, Signal
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from PySide6.QtWebChannel import QWebChannel
@@ -8,6 +9,7 @@ from local_http_server import LocalHttpServer
 from selection_model import SelectionModel
 from download_worker import DownloadWorker, format_tile_s3_key
 
+logger = logging.getLogger(__name__)
 
 # --- Define the Bridge class ---
 class MapBridge(QObject):
@@ -69,11 +71,9 @@ class AppController(QObject):
         """Initializes and starts the local HTTP server in a background thread."""
         map_dir_path = os.path.join(self.base_dir, "map")
         self.http_server = LocalHttpServer(port=8001, serve_dir=map_dir_path)
-        
-        # When the server signals that it's ready, we tell the view to load the map
         self.http_server.server_started.connect(self.on_server_ready)
-        
         self.http_server.start()
+        logger.debug("Local HTTP server thread started.")
 
     def _setup_web_channel(self):
         """Initializes the QWebChannel to enable JS-to-Python communication."""
@@ -106,7 +106,7 @@ class AppController(QObject):
         Slot that is called when the HTTP server is running.
         It tells the view to load the map URL.
         """
-        print(f"Controller: Server is ready. Telling View to load map.")
+        logger.info(f"Server is ready. Telling View to load map from http://{host}:{port}/index.html")
         url = QUrl(f"http://{host}:{port}/index.html")
         self.view.set_map_url(url)
 
@@ -120,11 +120,11 @@ class AppController(QObject):
             is_checked (bool): The new state of the action, passed by the 'toggled' signal.
         """
         if not self.view.is_map_ready():
-            print("Map is not ready for JS commands yet.")
+            logger.info(f"Map is not ready for JS commands yet.")
             return
 
-        print(f"Toggling grid visibility to: {is_checked}")
-        
+        logger.debug(f"Toggling grid visibility to: {is_checked}")
+                
         js_code = f"toggleGridVisibility({str(is_checked).lower()});"
         self.view.run_javascript(js_code)    
 
@@ -141,6 +141,7 @@ class AppController(QObject):
         for updating the map's visual state and the data model.
         """
         tile = (lat, lon)
+        logger.debug(f"Tile click received for ({lat}, {lon}).")
         
         if tile in self.model.get_selected_tiles():
             self.view.run_javascript(f"removeHighlight({lat}, {lon});")
@@ -156,8 +157,7 @@ class AppController(QObject):
         Handles updates when the data model changes. This should only update
         UI elements that depend on the entire list, like the sidebar.
         """
-        # We will add the sidebar logic here in the next step.
-        print(f"Model selection changed. New selection: {selected_tiles}")
+        logging.debug(f"Model selection changed. New selection: {selected_tiles}")
 
         tile_names = [self.format_tile_name(*tile) for tile in sorted(list(selected_tiles))]
         self.view.update_tile_list(tile_names)
@@ -171,7 +171,7 @@ class AppController(QObject):
         Orchestrates the entire download process, from user input to starting the worker.
         """
         if self.worker is not None and self.worker.isRunning():
-            print("Download already in progress.")
+            logging.info("Download already in progress.")
             return
         
         # 1. Ask user for a save directory
@@ -189,7 +189,7 @@ class AppController(QObject):
         
         # 4. Create, configure, and start the worker
         self.worker = DownloadWorker(list(self.model.get_selected_tiles()), save_path, overwrite_mode)
-        print(f"Starting download worker with {len(self.model.get_selected_tiles())} tiles to process.")
+        logging.info(f"Starting download worker with {len(self.model.get_selected_tiles())} tiles to process.")
         
         # 5. Connect signals from the worker to the controller's slots (or directly to the view)
         self.worker.file_progress.connect(lambda cur, tot: self.view.show_status_message(f"Processing file {cur} of {tot}...", 0))
@@ -247,22 +247,22 @@ class AppController(QObject):
     def on_download_finished(self):
         """Handles the UI reset when the worker is finished."""
         
-        print("Controller: Download worker has finished.")
+        logging.info("Download worker has finished.")
 
         if self.worker is None:
-            print("No worker instance found on download finish.")
+            logging.info("No worker instance found on download finish.")
             return
 
         self.worker.finished.disconnect(self.on_download_finished)
 
         was_cancelled = self.worker._is_stopped
-        print(f"Download worker finished. Cancelled: {was_cancelled}")
+        logging.debug(f"Download worker finished. Cancelled: {was_cancelled}")
         
         # Command the view to return to its idle state
         self.view.set_download_state(is_downloading=False)
         self.view.update_download_button_state(self.model.has_selection())
         self.worker = None
-        
+
         if was_cancelled:
             msg = "Download cancelled."            
         else:
@@ -275,6 +275,8 @@ class AppController(QObject):
     @Slot()
     def cleanup(self):
         """Ensures background threads are stopped when the app closes."""
+        logger.info("Cleaning up background services...")
+        
         if self.worker and self.worker.isRunning():
             self.worker.stop()
             self.worker.wait()

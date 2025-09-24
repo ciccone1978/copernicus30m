@@ -1,7 +1,10 @@
 import os
+import logging
 import boto3
 import botocore
 from PySide6.QtCore import QThread, Signal
+
+logger = logging.getLogger(__name__)
 
 # Helper function to format tile names (moved here for encapsulation)
 def format_tile_s3_key(lat, lon):
@@ -59,6 +62,7 @@ class DownloadWorker(QThread):
                     response = self.s3_client.head_object(Bucket="copernicus-dem-30m", Key=s3_key)
                     grand_total_size += int(response.get('ContentLength', 0))
                 except botocore.exceptions.ClientError:
+                    logger.warning(f"Tile not found on server (404): {s3_key}", exc_info=True)
                     pass 
 
                 if self._is_stopped:
@@ -105,10 +109,22 @@ class DownloadWorker(QThread):
                             self.status_update.emit(f"Finished: {file_name}")
                                 
                 except botocore.exceptions.ClientError as e:
-                    self.error_occurred.emit(f"Error for {file_name}: {e}")
+                    error_code = e.response['Error']['Code']
+                    if error_code == "404":
+                        message = f"Tile not found on server: {file_name}"
+                        # A 404 is a known possibility, so a WARNING is appropriate.
+                        logger.warning(message)
+                        self.status_update.emit(f"Skipped (Not Found): {file_name}")
+                    else:
+                        message = f"Network/Boto3 Error for {file_name}: {e}"
+                        # Other client errors are more severe.
+                        logger.error(message, exc_info=True)
+                        self.error_occurred.emit(message)
 
         except Exception as e:
-            self.error_occurred.emit(f"A critical error occurred: {e}")
+            message = f"A critical error occurred in the download worker: {e}"
+            logger.exception(message)
+            self.error_occurred.emit(message)
         finally:
             self.finished.emit()
 
@@ -118,5 +134,4 @@ class DownloadWorker(QThread):
         Sets the stop flag to True. The running loop will check this flag
         and exit gracefully.
         """
-        print("Stop signal received by worker.")
         self._is_stopped = True        
