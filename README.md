@@ -75,8 +75,9 @@ With the `.venv` virtual environment active, simply run the main Python script:
 
 ```bash
 python copernicus30m.py
+```
 
-# Application Guide
+## Application Guide
 
 The application will launch in a maximized window.
 
