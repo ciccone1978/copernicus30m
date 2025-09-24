@@ -181,6 +181,7 @@ class AppController(QObject):
         tile_names = [self.format_tile_name(*tile) for tile in sorted(list(selected_tiles))]
         self.view.update_tile_list(tile_names)
         self.view.update_download_button_state(self.model.has_selection())
+        self.view.update_tile_count(len(selected_tiles))
 
 
     # --- The main slot to handle the download request from the View ---

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QStatusBar,
     QLabel,
     QVBoxLayout,
+    QHBoxLayout,
     QListWidget, 
     QPushButton,
     QProgressBar, 
@@ -61,12 +62,22 @@ class MainWindow(QMainWindow):
         """Creates the sidebar widget with all its UI elements."""
         container = QWidget()
         layout = QVBoxLayout(container)
+        title_layout = QHBoxLayout()
         
         title_label = QLabel("Selected Tiles")
         font = title_label.font()
         font.setPointSize(14)
         font.setBold(True)
         title_label.setFont(font)
+
+        self.tile_count_label = QLabel("(0)")
+        count_font = self.tile_count_label.font()
+        count_font.setPointSize(12)
+        self.tile_count_label.setFont(count_font)
+
+        title_layout.addWidget(title_label)
+        title_layout.addWidget(self.tile_count_label)
+        title_layout.addStretch() 
         
         self.tile_list_widget = QListWidget()
         self.tile_list_widget.setToolTip("List of DEM tiles selected on the map.")
@@ -81,7 +92,7 @@ class MainWindow(QMainWindow):
         self.progress_bar = QProgressBar()
         self.progress_bar.hide() # Hidden until a download starts
 
-        layout.addWidget(title_label)
+        layout.addLayout(title_layout)
         layout.addWidget(self.tile_list_widget)
         layout.addWidget(self.download_button)
         layout.addWidget(self.progress_bar)
@@ -225,3 +236,7 @@ class MainWindow(QMainWindow):
             self.download_button.setIcon(self.download_icon)
             self.progress_bar.hide()
             self.progress_bar.setFormat("%p%")        
+
+    def update_tile_count(self, count: int):
+        """Updates the text of the tile count label in the sidebar."""
+        self.tile_count_label.setText(f"({count})")
