@@ -4,7 +4,7 @@ A user-friendly desktop application for visually selecting and downloading Coper
 
 This tool provides an interactive map interface, removing the need for users to manually find geographic coordinates. It is designed for GIS professionals, researchers, students, and hobbyists who need easy access to high-quality global elevation data.
 
-![Application Screenshot](screenshot.png)
+![Application Screenshot](Screenshot.png)
 
 ## Features
 
