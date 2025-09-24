@@ -18,7 +18,7 @@ class DownloadWorker(QThread):
     
     file_progress = Signal(int, int)
     total_progress_updated = Signal(int, int)
-    tile_finished = Signal(str)
+    status_update = Signal(str)
     error_occurred = Signal(str)
     finished = Signal()
 
@@ -42,15 +42,17 @@ class DownloadWorker(QThread):
             self.s3_client = boto3.client('s3', config=botocore.client.Config(signature_version=botocore.UNSIGNED))
             
             # --- Pre-flight check to calculate total size ---
-            self.tile_finished.emit("Calculating total download size...")
+            self.status_update.emit("Calculating total download size...")
             grand_total_size = 0
             tiles_to_actually_download = []
+
             for lat, lon in self.tiles:
                 s3_key = format_tile_s3_key(lat, lon)
                 local_path = os.path.join(self.save_path, os.path.basename(s3_key))
 
                 if self.overwrite_mode == 'skip' and os.path.exists(local_path):
-                    continue # Skip this file for size calculation
+                    self.status_update.emit(f"Skipping existing file: {os.path.basename(s3_key)}")
+                    continue
                 
                 tiles_to_actually_download.append((lat, lon))
                 try:
@@ -60,8 +62,8 @@ class DownloadWorker(QThread):
                     pass 
 
                 if self._is_stopped:
-                    self.tile_finished.emit("Download cancelled during size calculation.")
-                    self.finished.emit()
+                    self.status_update.emit("Download cancelled during size calculation.")
+                    #self.finished.emit()
                     return
 
             # --- Main Download Loop ---
@@ -70,7 +72,7 @@ class DownloadWorker(QThread):
                         
             for i, (lat, lon) in enumerate(tiles_to_actually_download):
                 if self._is_stopped:
-                    self.tile_finished.emit("Download cancelled by user.")
+                    self.status_update.emit("Download cancelled by user.")
                     break
                 
                 self.file_progress.emit(i + 1, total_tiles_to_process)
@@ -79,7 +81,7 @@ class DownloadWorker(QThread):
                 local_path = os.path.join(self.save_path, file_name)
 
                 try:
-                    self.tile_finished.emit(f"Downloading: {file_name}...")
+                    self.status_update.emit(f"Downloading: {file_name}...")
                     s3_object = self.s3_client.get_object(Bucket="copernicus-dem-30m", Key=s3_key)
                     streaming_body = s3_object['Body']
                         
@@ -92,16 +94,15 @@ class DownloadWorker(QThread):
                                 f.close()
                                 streaming_body.close()
                                 os.remove(local_path)
-                                self.tile_finished.emit(f"Cancelled: {file_name}")
+                                self.status_update.emit(f"Cancelled: {file_name}")
                                 break
                                 
                             f.write(chunk)
-                            chunk_size = len(chunk)
-                            cumulative_bytes_downloaded += chunk_size                           
+                            cumulative_bytes_downloaded += len(chunk)                          
                             self.total_progress_updated.emit(cumulative_bytes_downloaded, grand_total_size)
 
                         else:
-                            self.tile_finished.emit(f"Finished: {file_name}")
+                            self.status_update.emit(f"Finished: {file_name}")
                                 
                 except botocore.exceptions.ClientError as e:
                     self.error_occurred.emit(f"Error for {file_name}: {e}")
