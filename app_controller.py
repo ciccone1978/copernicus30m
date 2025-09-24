@@ -189,6 +189,7 @@ class AppController(QObject):
         
         # 4. Create, configure, and start the worker
         self.worker = DownloadWorker(list(self.model.get_selected_tiles()), save_path, overwrite_mode)
+        print(f"Starting download worker with {len(self.model.get_selected_tiles())} tiles to process.")
         
         # 5. Connect signals from the worker to the controller's slots (or directly to the view)
         self.worker.file_progress.connect(lambda cur, tot: self.view.show_status_message(f"Processing file {cur} of {tot}...", 0))
@@ -245,15 +246,22 @@ class AppController(QObject):
     @Slot()
     def on_download_finished(self):
         """Handles the UI reset when the worker is finished."""
-        was_cancelled = self.worker._is_stopped if self.worker else False
+        
+        print("Controller: Download worker has finished.")
+
+        if self.worker is None:
+            print("No worker instance found on download finish.")
+            return
+
+        self.worker.finished.disconnect(self.on_download_finished)
+
+        was_cancelled = self.worker._is_stopped
         print(f"Download worker finished. Cancelled: {was_cancelled}")
-
-        if self.worker:
-            self.worker.finished.disconnect(self.on_download_finished)
-
+        
         # Command the view to return to its idle state
         self.view.set_download_state(is_downloading=False)
         self.view.update_download_button_state(self.model.has_selection())
+        self.worker = None
         
         if was_cancelled:
             msg = "Download cancelled."            
@@ -262,7 +270,6 @@ class AppController(QObject):
             QMessageBox.information(self.view, "Download Complete", "All selected tiles have been processed.")
         
         self.view.show_status_message(msg, 10000)
-        self.worker = None # Release the worker instance
 
 
     @Slot()
