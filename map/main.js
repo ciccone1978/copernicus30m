@@ -88,6 +88,13 @@ function removeHighlight(lat, lon) {
     }
 }
 
+function clearAllHighlights() {
+    if (selectionLayer) {
+        selectionLayer.clearLayers();
+        highlightedTiles = {}; // Reset the tracking object
+    }
+}
+
 // --- Event Listeners ---
 map.on('moveend', updateGrid);
 updateGrid(); // Initial draw

@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (
     QListWidget, 
     QPushButton,
     QProgressBar, 
-    QMessageBox
+    QMessageBox, 
+    QMenu
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
@@ -22,6 +23,7 @@ class MainWindow(QMainWindow):
     """
     window_closed = Signal()
     toggle_grid_visibility_requested = Signal(bool)
+    clear_selection_requested = Signal()
     download_requested = Signal()
     stop_download_requested = Signal()
 
@@ -35,6 +37,8 @@ class MainWindow(QMainWindow):
         self.download_icon = QIcon(os.path.join(self.base_dir, "icons", "download-cloud.png"))
         self.stop_icon = QIcon(os.path.join(self.base_dir, "icons", "cross-circle.png"))
         self.grid_icon = QIcon(os.path.join(self.base_dir, "icons", "grid.png"))
+        self.broom_icon = QIcon(os.path.join(self.base_dir, "icons", "broom.png"))
+        self.control_power_icon = QIcon(os.path.join(self.base_dir, "icons", "control-power.png"))
 
         # --- Create Core Layout ---
         main_splitter = QSplitter(Qt.Horizontal)
@@ -66,6 +70,8 @@ class MainWindow(QMainWindow):
         
         self.tile_list_widget = QListWidget()
         self.tile_list_widget.setToolTip("List of DEM tiles selected on the map.")
+        self.tile_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tile_list_widget.customContextMenuRequested.connect(self._setup_context_menu)
         
         self.download_button = QPushButton("Download Selected Tiles")
         self.download_button.setIcon(self.download_icon)
@@ -84,21 +90,32 @@ class MainWindow(QMainWindow):
 
     def _setup_actions(self):
         """Creates the reusable QAction objects for the application."""
-        exit_icon_path = os.path.join(self.base_dir, "icons", "control-power.png")
-        self.exit_action = QAction(QIcon(exit_icon_path), "&Exit", self)
+        #Exit
+        self.exit_action = QAction(QIcon(self.control_power_icon), "&Exit", self)
         self.exit_action.triggered.connect(self.close) 
 
-        grid_icon_path = os.path.join(self.base_dir, "icons", "grid.png")
+        # Toggle Grid
         self.toggle_grid_action = QAction(self.grid_icon, "Show/Hide &Grid", self)
         self.toggle_grid_action.setCheckable(True)
         self.toggle_grid_action.setChecked(True)
         self.toggle_grid_action.toggled.connect(self.toggle_grid_visibility_requested)
 
+        # Clear Selection
+        self.clear_selection_action = QAction(self.broom_icon, "&Clear Selection", self)
+        self.clear_selection_action.setShortcut("Ctrl+D")
+        self.clear_selection_action.setToolTip("Clear all selected tiles from the list.")
+        self.clear_selection_action.triggered.connect(self.clear_selection_requested)
+
     def _setup_menu(self):
         """Creates the main menu bar."""
         menu = self.menuBar()
+
         file_menu = menu.addMenu("&File")
         file_menu.addAction(self.exit_action)
+
+        edit_menu = menu.addMenu("&Edit")
+        edit_menu.addAction(self.clear_selection_action)
+
         view_menu = menu.addMenu("&View")
         view_menu.addAction(self.toggle_grid_action)
 
@@ -109,6 +126,8 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.exit_action)
         toolbar.addSeparator()
         toolbar.addAction(self.toggle_grid_action)
+        toolbar.addSeparator()
+        toolbar.addAction(self.clear_selection_action)
 
     def _setup_statusbar(self):
         """Creates the status bar and its permanent widgets."""
@@ -118,6 +137,12 @@ class MainWindow(QMainWindow):
         self.zoom_label.setContentsMargins(10, 0, 5, 0)
         self.statusBar().addPermanentWidget(self.zoom_label)
         self.statusBar().addPermanentWidget(self.coord_label)
+
+    def _setup_context_menu(self, position):
+        """Creates and shows a context menu when the user right-clicks the list."""
+        context_menu = QMenu(self)
+        context_menu.addAction(self.clear_selection_action)
+        context_menu.exec(self.tile_list_widget.mapToGlobal(position))
 
     # --- Public Methods for the Controller ---
 

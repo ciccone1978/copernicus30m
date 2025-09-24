@@ -86,6 +86,7 @@ class AppController(QObject):
         """Connects signals from the view to slots in this controller."""
         
         self.view.toggle_grid_visibility_requested.connect(self.on_toggle_grid)
+        self.view.clear_selection_requested.connect(self.on_clear_selection)
         self.view.download_requested.connect(self.start_download)
         self.view.stop_download_requested.connect(self.stop_download)
         self.view.window_closed.connect(self.cleanup)
@@ -127,6 +128,24 @@ class AppController(QObject):
                 
         js_code = f"toggleGridVisibility({str(is_checked).lower()});"
         self.view.run_javascript(js_code)    
+
+    @Slot()
+    def on_clear_selection(self):
+        """Clears the current selection in both the model and the view."""
+        logger.debug("Clearing all selected tiles from model and view.")
+        
+        # Clear the model's selection
+        self.model.clear_selection()
+        
+        # Command the view to remove all highlights
+        if self.view.is_map_ready():
+            self.view.run_javascript("clearAllHighlights();")
+        else:
+            logger.info("Map is not ready for JS commands yet; cannot clear highlights.")
+        
+        # Update the sidebar list and button state
+        #self.view.update_tile_list([])
+        #self.view.update_download_button_state(False)
 
 
     @Slot(str, int)
@@ -276,7 +295,7 @@ class AppController(QObject):
     def cleanup(self):
         """Ensures background threads are stopped when the app closes."""
         logger.info("Cleaning up background services...")
-        
+
         if self.worker and self.worker.isRunning():
             self.worker.stop()
             self.worker.wait()
