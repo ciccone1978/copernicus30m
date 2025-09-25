@@ -95,6 +95,45 @@ function clearAllHighlights() {
     }
 }
 
+/**
+ * Clears all existing highlights and draws new ones for the given tiles.
+ * This is more efficient than calling addHighlight for each tile from Python.
+ * @param {Array<Array<number>>} tiles - An array of [lat, lon] pairs.
+ */
+function syncHighlights(tiles) {
+    // 1. Clear everything first
+    if (selectionLayer) {
+        selectionLayer.clearLayers();
+    }
+    highlightedTiles = {};
+
+    // 2. If there are tiles to draw, add them
+    if (tiles && tiles.length > 0) {
+        if (!selectionLayer) {
+            selectionLayer = L.layerGroup().addTo(map);
+        }
+        
+        const newHighlightLayers = [];
+        tiles.forEach(tile => {
+            const lat = tile[0];
+            const lon = tile[1];
+            
+            const bounds = [[lat, lon], [lat + 1, lon + 1]];
+            const rect = L.rectangle(bounds, {
+                className: 'selection-polygon',
+                interactive: false
+            });
+            
+            const tileId = `${lat}_${lon}`;
+            highlightedTiles[tileId] = rect; // Store for individual removal later
+            newHighlightLayers.push(rect);
+        });
+        
+        // Add all new layers in a single, efficient operation
+        newHighlightLayers.forEach(layer => selectionLayer.addLayer(layer));
+    }
+}
+
 // --- Event Listeners ---
 map.on('moveend', updateGrid);
 updateGrid(); // Initial draw

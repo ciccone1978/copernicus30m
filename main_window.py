@@ -28,6 +28,8 @@ class MainWindow(QMainWindow):
     download_requested = Signal()
     stop_download_requested = Signal()
     about_requested = Signal()
+    export_selection_requested = Signal()
+    import_selection_requested = Signal()
 
     def __init__(self, base_dir):
         super().__init__()
@@ -42,6 +44,8 @@ class MainWindow(QMainWindow):
         self.broom_icon = QIcon(os.path.join(self.base_dir, "icons", "broom.png"))
         self.control_power_icon = QIcon(os.path.join(self.base_dir, "icons", "control-power.png"))
         self.about_icon = QIcon(os.path.join(self.base_dir, "icons", "information.png"))
+        self.import_icon = QIcon(os.path.join(self.base_dir, "icons", "folder-open-document.png"))
+        self.export_icon = QIcon(os.path.join(self.base_dir, "icons", "disk.png"))
 
         # --- Create Core Layout ---
         main_splitter = QSplitter(Qt.Horizontal)
@@ -124,11 +128,25 @@ class MainWindow(QMainWindow):
         self.about_action.setStatusTip("Show application information")
         self.about_action.triggered.connect(self.about_requested)
 
+        # Export Selection
+        self.export_action = QAction(self.export_icon, "&Export Selection...", self)
+        self.export_action.setStatusTip("Save the current tile selection to a file")
+        self.export_action.triggered.connect(self.export_selection_requested)
+
+        # Import Selection
+        self.import_action = QAction(self.import_icon, "&Import Selection...", self)
+        self.import_action.setStatusTip("Load a tile selection from a file")
+        self.import_action.triggered.connect(self.import_selection_requested)
+
+
     def _setup_menu(self):
         """Creates the main menu bar."""
         menu = self.menuBar()
 
         file_menu = menu.addMenu("&File")
+        file_menu.addAction(self.import_action)
+        file_menu.addAction(self.export_action)
+        file_menu.addSeparator()
         file_menu.addAction(self.exit_action)
 
         edit_menu = menu.addMenu("&Edit")
@@ -144,7 +162,9 @@ class MainWindow(QMainWindow):
         """Creates the main toolbar."""
         toolbar = self.addToolBar("Main Toolbar")
         toolbar.setIconSize(QSize(24, 24))
-        toolbar.addAction(self.exit_action)
+
+        toolbar.addAction(self.import_action)
+        toolbar.addAction(self.export_action)
         toolbar.addSeparator()
         toolbar.addAction(self.toggle_grid_action)
         toolbar.addSeparator()
@@ -170,6 +190,7 @@ class MainWindow(QMainWindow):
         """Creates and shows a context menu when the user right-clicks the list."""
         context_menu = QMenu(self)
         context_menu.addAction(self.clear_selection_action)
+        context_menu.addAction(self.export_action)
         context_menu.exec(self.tile_list_widget.mapToGlobal(position))
 
     # --- Public Methods for the Controller ---

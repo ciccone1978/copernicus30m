@@ -57,6 +57,17 @@ class SelectionModel(QObject):
             bool: True if at least one tile is selected, False otherwise.
         """
         return len(self._selected_tiles) > 0
+    
+    def set_selection(self, tiles: set):
+        """
+        Replaces the current selection with a new set of tiles.
+
+        Args:
+            tiles (set): The new set of (lat, lon) tuples for the selection.
+        """
+        if self._selected_tiles != tiles:
+            self._selected_tiles = tiles
+            self.selection_changed.emit(self._selected_tiles.copy())
 
     def clear_selection(self):
         """Resets the selection to an empty set."""

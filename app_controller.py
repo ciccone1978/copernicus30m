@@ -1,6 +1,7 @@
 import os
 import logging
 import math
+import json
 from PySide6.QtCore import QObject, Slot, QUrl, Signal
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from PySide6.QtWebChannel import QWebChannel
@@ -91,6 +92,8 @@ class AppController(QObject):
         self.view.stop_download_requested.connect(self.stop_download)
         self.view.window_closed.connect(self.cleanup)
         self.view.about_requested.connect(self.show_about_dialog)
+        self.view.export_selection_requested.connect(self.on_export_selection)
+        self.view.import_selection_requested.connect(self.on_import_selection)
 
         self.bridge.coordinates_changed.connect(self.on_coordinates_changed)
         self.bridge.tile_clicked.connect(self.on_tile_selected)
@@ -319,6 +322,77 @@ class AppController(QObject):
         """Creates and shows the 'About' dialog."""
         dialog = AboutDialog(self.view)
         dialog.exec()
+
+
+    @Slot()
+    def on_export_selection(self):
+        """
+        Opens a save file dialog and writes the current selection to a JSON file.
+        """
+        if not self.model.has_selection():
+            QMessageBox.information(self.view, "No Selection", "There are no tiles selected to export.")
+            return
+
+        dialog = QFileDialog(self.view, "Export Selection As", os.path.expanduser("~"))
+        dialog.setFileMode(QFileDialog.AnyFile)
+        dialog.setAcceptMode(QFileDialog.AcceptSave)
+        dialog.setNameFilter("JSON Files (*.json)")
+        dialog.setDefaultSuffix("json")
+
+        if dialog.exec():
+            file_path = dialog.selectedFiles()[0]
+            selection_list = [list(tile) for tile in self.model.get_selected_tiles()]
+
+            try:
+                with open(file_path, 'w') as f:
+                    json.dump(selection_list, f, indent=4)
+                    
+                self.view.show_status_message(f"Selection exported to {os.path.basename(file_path)}")
+                logger.info(f"Exported {len(selection_list)} selected tiles to {file_path}")
+            except Exception as e:
+                logger.exception(f"Failed to export selection to {file_path}")
+                QMessageBox.critical(self.view, "Export Error", f"Could not save the file:\n{e}")
+
+    @Slot()
+    def on_import_selection(self):
+        """
+        Opens a file dialog and loads a selection from a JSON file,
+        updating the model and the view.
+        """
+        file_path, _ = QFileDialog.getOpenFileName(
+            self.view,
+            "Import Selection",
+            os.path.expanduser("~"),
+            "JSON Files (*.json)"
+        )
+
+        if not file_path:
+            return # User cancelled
+
+        try:
+            with open(file_path, 'r') as f:
+                selection_list = json.load(f)
+            
+            # Validate the loaded data and convert it to a set of tuples
+            if not isinstance(selection_list, list):
+                raise TypeError("JSON file does not contain a list.")
+            
+            # Convert the list of lists back to a set of tuples
+            new_selection = {tuple(item) for item in selection_list}
+
+            # Command the Model to update its state
+            self.model.set_selection(new_selection)
+
+            # Command the View to perform a full sync of map highlights
+            js_arg = json.dumps([list(tile) for tile in new_selection])
+            self.view.run_javascript(f"syncHighlights({js_arg});")
+            
+            self.view.show_status_message(f"Imported {len(new_selection)} tiles from {os.path.basename(file_path)}")
+            logger.info(f"Imported selection from {file_path}")
+
+        except Exception as e:
+            logger.exception(f"Failed to import selection from {file_path}")
+            QMessageBox.critical(self.view, "Import Error", f"Could not read or parse the file:\n{e}")
 
 
     # --- Helper method for the controller ---
