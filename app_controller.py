@@ -1,5 +1,6 @@
 import os
 import logging
+import math
 from PySide6.QtCore import QObject, Slot, QUrl, Signal
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from PySide6.QtWebChannel import QWebChannel
@@ -19,8 +20,7 @@ class MapBridge(QObject):
     It exposes 'slots' that can be called from JS and emits 'signals'
     that the main application can connect to.
     """
-    # Signal that will carry the coordinate string and zoom level to the main window
-    coordinates_changed = Signal(str, int)
+    coordinates_changed = Signal(float, float, int)
     tile_clicked = Signal(int, int)
 
     @Slot(float, float, int)
@@ -33,8 +33,7 @@ class MapBridge(QObject):
             lng (float): Longitude of the mouse cursor.
             zoom (int): The current zoom level of the map.
         """
-        formatted_coords = f"Lat: {lat:.5f}, Lon: {lng:.5f}"
-        self.coordinates_changed.emit(formatted_coords, zoom)
+        self.coordinates_changed.emit(lat, lng, zoom)
         
     # --- Slot that receives the raw tile click from JS ---
     @Slot(int, int)
@@ -150,10 +149,16 @@ class AppController(QObject):
         #self.view.update_download_button_state(False)
 
 
-    @Slot(str, int)
-    def on_coordinates_changed(self, coords_text, zoom_level):
+    @Slot(float, float, int)
+    def on_coordinates_changed(self, lat, lng, zoom_level):
         """Commands the View to update its status bar display."""
-        self.view.update_coord_display(coords_text, zoom_level)    
+        formatted_coords = f"Lat: {lat:.5f}, Lon: {lng:.5f}"
+        
+        tile_lat = math.floor(lat)
+        tile_lon = math.floor(lng)
+        tile_name = self.format_tile_name(tile_lat, tile_lon)
+        
+        self.view.update_coord_display(formatted_coords, zoom_level, tile_name)    
 
     @Slot(int, int)
     def on_tile_selected(self, lat, lon):

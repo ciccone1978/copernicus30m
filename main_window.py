@@ -153,11 +153,18 @@ class MainWindow(QMainWindow):
     def _setup_statusbar(self):
         """Creates the status bar and its permanent widgets."""
         self.setStatusBar(QStatusBar(self))
+        
+        self.hover_tile_label = QLabel("Tile: N/A")
+        self.hover_tile_label.setMinimumWidth(350) 
+        
         self.coord_label = QLabel("Lat: N/A, Lon: N/A")
-        self.zoom_label = QLabel("Zoom: N/A")
+        
+        self.zoom_label = QLabel("Zoom Level: N/A")
         self.zoom_label.setContentsMargins(10, 0, 5, 0)
-        self.statusBar().addPermanentWidget(self.zoom_label)
+        
         self.statusBar().addPermanentWidget(self.coord_label)
+        self.statusBar().addPermanentWidget(self.zoom_label)
+        self.statusBar().addPermanentWidget(self.hover_tile_label)
 
     def _setup_context_menu(self, position):
         """Creates and shows a context menu when the user right-clicks the list."""
@@ -207,10 +214,11 @@ class MainWindow(QMainWindow):
         """Public method to execute a string of JavaScript code in the web view."""
         self.map_view.page().runJavaScript(js_code)
 
-    def update_coord_display(self, coords_text: str, zoom_level: int):
+    def update_coord_display(self, coords_text: str, zoom_level: int, tile_name: str):
         """Public method to update the coordinate and zoom labels in the status bar."""
         self.coord_label.setText(coords_text)
-        self.zoom_label.setText(f"Zoom: {zoom_level}")    
+        self.zoom_label.setText(f"Zoom Level: {zoom_level}")    
+        self.hover_tile_label.setText(f"Tile: {tile_name}")
 
     def update_tile_list(self, tile_name_list: list):
         """Clears and repopulates the sidebar list with new tile names."""
