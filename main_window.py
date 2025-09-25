@@ -1,5 +1,5 @@
 import os
-from PySide6.QtCore import Qt, QUrl, QSize, Signal
+from PySide6.QtCore import Qt, QUrl, QSize, Signal, Slot
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QMainWindow,
@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QListWidget, 
+    QListWidgetItem,
     QPushButton,
     QProgressBar, 
     QMessageBox, 
@@ -30,6 +31,8 @@ class MainWindow(QMainWindow):
     about_requested = Signal()
     export_selection_requested = Signal()
     import_selection_requested = Signal()
+    list_item_selected = Signal(QListWidgetItem)
+    list_selection_cleared = Signal()
 
     def __init__(self, base_dir):
         super().__init__()
@@ -89,6 +92,7 @@ class MainWindow(QMainWindow):
         self.tile_list_widget.setToolTip("List of DEM tiles selected on the map.")
         self.tile_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tile_list_widget.customContextMenuRequested.connect(self._setup_context_menu)
+        self.tile_list_widget.currentItemChanged.connect(self._on_list_item_changed)
         
         self.download_button = QPushButton("Download Selected Tiles")
         self.download_button.setIcon(self.download_icon)
@@ -193,6 +197,25 @@ class MainWindow(QMainWindow):
         context_menu.addAction(self.export_action)
         context_menu.exec(self.tile_list_widget.mapToGlobal(position))
 
+    @Slot(QListWidgetItem, QListWidgetItem)
+    def _on_list_item_changed(self, current, previous):
+        """
+        This private slot listens to the raw QListWidget signal and decides
+        which public, semantic signal to emit to the controller.
+        """
+        if current is not None:
+            self.list_item_selected.emit(current)
+            print("list_item_selected.emited")
+        else:
+            self.list_selection_cleared.emit()
+            print("list_selection_cleared.emited")
+
+    def _format_tile_name(self, lat, lon):
+        """Formats lat/lon coordinates into the user-friendly tile name."""
+        lat_str = f"N{abs(lat):02d}" if lat >= 0 else f"S{abs(lat):02d}"
+        lon_str = f"E{abs(lon):03d}" if lon >= 0 else f"W{abs(lon):03d}"
+        return f"Copernicus_DSM_COG_10_{lat_str}_00_{lon_str}_00_DEM"
+
     # --- Public Methods for the Controller ---
 
     def show_status_message(self, message: str, timeout: int = 5000):
@@ -241,10 +264,20 @@ class MainWindow(QMainWindow):
         self.zoom_label.setText(f"Zoom Level: {zoom_level}")    
         self.hover_tile_label.setText(f"Tile: {tile_name}")
 
-    def update_tile_list(self, tile_name_list: list):
-        """Clears and repopulates the sidebar list with new tile names."""
+    def update_tile_list(self, tiles: list):
+        """
+        Clears and repopulates the sidebar list with new tiles.
+        The View is responsible for formatting the name and storing the data.
+        
+        Args:
+            tiles (list): A sorted list of (lat, lon) tuples.
+        """
         self.tile_list_widget.clear()
-        self.tile_list_widget.addItems(tile_name_list)    
+        for tile in tiles:
+            tile_name = self._format_tile_name(*tile)
+            list_item = QListWidgetItem(tile_name)
+            list_item.setData(Qt.UserRole, tile)
+            self.tile_list_widget.addItem(list_item)
 
     def update_download_button_state(self, is_enabled: bool):
         """Enables or disables the download button."""

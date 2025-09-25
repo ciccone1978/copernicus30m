@@ -1,9 +1,25 @@
 // --- Global Variables ---
+
+const SELECTION_STYLE = {
+    color: '#005a9e',       // stroke-color (blue)
+    fillColor: '#0078d4',  // fill-color (blue)
+    fillOpacity: 0.3,
+    weight: 1              // stroke-width
+};
+
+const ACTIVE_SELECTION_STYLE = {
+    color: '#a20b17',       // stroke-color (red)
+    fillColor: '#e81123',  // fill-color (red)
+    fillOpacity: 0.5,
+    weight: 2              // stroke-width
+};
+
 let gridLayer = null;
 let labelLayer = null;
-let selectionLayer = null; // NEW: Layer for highlight polygons
+let selectionLayer = null;
 let isGridVisible = true;
-let highlightedTiles = {}; // NEW: Object to keep track of highlight layers
+let highlightedTiles = {};
+let currentlyActiveTileId = null;
 
 // --- Initialize the Map ---
 const map = L.map('map').setView([41.9028, 12.4964], 6);
@@ -64,10 +80,8 @@ function addHighlight(lat, lon) {
         selectionLayer = L.layerGroup().addTo(map);
     }
     const bounds = [[lat, lon], [lat + 1, lon + 1]];
-    const rect = L.rectangle(bounds, {
-        className: 'selection-polygon', // Our custom CSS class
-        interactive: false // The highlight itself shouldn't be clickable
-    });
+    const rect = L.rectangle(bounds, { interactive: false });
+    rect.setStyle(SELECTION_STYLE);
     
     const tileId = `${lat}_${lon}`;
     highlightedTiles[tileId] = rect; // Store the layer
@@ -119,10 +133,8 @@ function syncHighlights(tiles) {
             const lon = tile[1];
             
             const bounds = [[lat, lon], [lat + 1, lon + 1]];
-            const rect = L.rectangle(bounds, {
-                className: 'selection-polygon',
-                interactive: false
-            });
+            const rect = L.rectangle(bounds, { interactive: false });
+            rect.setStyle(SELECTION_STYLE);
             
             const tileId = `${lat}_${lon}`;
             highlightedTiles[tileId] = rect; // Store for individual removal later
@@ -133,6 +145,58 @@ function syncHighlights(tiles) {
         newHighlightLayers.forEach(layer => selectionLayer.addLayer(layer));
     }
 }
+
+
+/**
+ * Changes the style of a specific tile highlight to 'active' (e.g., red).
+ * Resets the style of the previously active tile.
+ * @param {number} lat - The integer latitude of the tile to activate.
+ * @param {number} lon - The integer longitude of the tile to activate.
+ */
+function setActiveHighlight(lat, lon) {
+    
+    console.log(`--- setActiveHighlight called with lat: ${lat}, lon: ${lon} ---`);
+
+    // First, reset the previously active tile, if there was one
+    if (currentlyActiveTileId) {
+        const oldRect = highlightedTiles[currentlyActiveTileId];
+        console.log("Found old active tile:", currentlyActiveTileId, "Rect:", oldRect);
+        if (oldRect) {
+            oldRect.setStyle(SELECTION_STYLE);
+        }
+    }
+
+    // Now, set the new active tile
+    const newTileId = `${lat}_${lon}`;
+    const newRect = highlightedTiles[newTileId];
+
+    console.log("Trying to find new tile:", newTileId);
+    console.log("All highlighted tiles known to JS:", Object.keys(highlightedTiles));
+    console.log("Finding rect:", newRect);
+
+    if (newRect) {
+        console.log("SUCCESS: Found rect. Applying active style.");
+        newRect.setStyle(ACTIVE_SELECTION_STYLE);
+        newRect.bringToFront();
+        currentlyActiveTileId = newTileId;
+    } else {
+        console.error("FAILURE: Could not find a highlight rectangle for this tile ID.");
+    }
+}
+
+/**
+ * Resets the style of the currently active tile back to the default selection color.
+ */
+function clearActiveHighlight() {
+    if (currentlyActiveTileId) {
+        const oldRect = highlightedTiles[currentlyActiveTileId];
+        if (oldRect) {
+            oldRect.setStyle(SELECTION_STYLE);
+        }
+        currentlyActiveTileId = null;
+    }
+}
+
 
 // --- Event Listeners ---
 map.on('moveend', updateGrid);

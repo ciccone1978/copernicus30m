@@ -2,8 +2,9 @@ import os
 import logging
 import math
 import json
-from PySide6.QtCore import QObject, Slot, QUrl, Signal
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+
+from PySide6.QtCore import QObject, Slot, QUrl, Signal, Qt
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QListWidgetItem
 from PySide6.QtWebChannel import QWebChannel
 
 from main_window import MainWindow
@@ -94,6 +95,8 @@ class AppController(QObject):
         self.view.about_requested.connect(self.show_about_dialog)
         self.view.export_selection_requested.connect(self.on_export_selection)
         self.view.import_selection_requested.connect(self.on_import_selection)
+        self.view.list_item_selected.connect(self.on_list_item_selected)
+        self.view.list_selection_cleared.connect(self.on_list_selection_cleared)
 
         self.bridge.coordinates_changed.connect(self.on_coordinates_changed)
         self.bridge.tile_clicked.connect(self.on_tile_selected)
@@ -188,11 +191,29 @@ class AppController(QObject):
         """
         logging.debug(f"Model selection changed. New selection: {selected_tiles}")
 
-        tile_names = [self.format_tile_name(*tile) for tile in sorted(list(selected_tiles))]
+        tile_names = sorted(list(selected_tiles))
         self.view.update_tile_list(tile_names)
         self.view.update_download_button_state(self.model.has_selection())
         self.view.update_tile_count(len(selected_tiles))
+        self.view.run_javascript("clearActiveHighlight();")
 
+    @Slot(QListWidgetItem)
+    def on_list_item_selected(self, current_item):
+        """
+        Handles the user selecting an item in the sidebar list.
+        Commands the map to change the color of the corresponding highlight.
+        """
+        tile_data = current_item.data(Qt.UserRole)
+        if tile_data:
+            lat, lon = tile_data
+            logger.debug(f"Highlighting tile {tile_data} from list selection.")
+            self.view.run_javascript(f"setActiveHighlight({lat}, {lon});")    
+
+    @Slot()
+    def on_list_selection_cleared(self):
+        """Handles the user clearing the selection in the list widget."""
+        logger.debug("List selection cleared. Clearing active highlight on map.")
+        self.view.run_javascript("clearActiveHighlight();")
 
     # --- The main slot to handle the download request from the View ---
     @Slot()
@@ -346,7 +367,7 @@ class AppController(QObject):
             try:
                 with open(file_path, 'w') as f:
                     json.dump(selection_list, f, indent=4)
-                    
+
                 self.view.show_status_message(f"Selection exported to {os.path.basename(file_path)}")
                 logger.info(f"Exported {len(selection_list)} selected tiles to {file_path}")
             except Exception as e:

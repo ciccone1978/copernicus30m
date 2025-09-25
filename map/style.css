@@ -29,3 +29,11 @@ html, body {
     stroke-width: 1;
     stroke-color: #005a9e;
 }
+
+/* Style for the 'active' highlight when selected in the sidebar list */
+.leaflet-interactive.active-selection-polygon {
+    fill-color: #e81123 !important; /* A bright red */
+    fill-opacity: 0.5 !important;
+    stroke-width: 2 !important;
+    stroke-color: #a20b17 !important;
+}
