@@ -8,6 +8,7 @@ from main_window import MainWindow
 from local_http_server import LocalHttpServer
 from selection_model import SelectionModel
 from download_worker import DownloadWorker, format_tile_s3_key
+from about_dialog import AboutDialog
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ class AppController(QObject):
         self.view.download_requested.connect(self.start_download)
         self.view.stop_download_requested.connect(self.stop_download)
         self.view.window_closed.connect(self.cleanup)
+        self.view.about_requested.connect(self.show_about_dialog)
 
         self.bridge.coordinates_changed.connect(self.on_coordinates_changed)
         self.bridge.tile_clicked.connect(self.on_tile_selected)
@@ -306,6 +308,13 @@ class AppController(QObject):
         from PySide6.QtWidgets import QApplication
         QApplication.instance().quit()
         
+
+    @Slot()
+    def show_about_dialog(self):
+        """Creates and shows the 'About' dialog."""
+        dialog = AboutDialog(self.view)
+        dialog.exec()
+
 
     # --- Helper method for the controller ---
     def format_tile_name(self, lat, lon):

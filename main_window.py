@@ -27,6 +27,7 @@ class MainWindow(QMainWindow):
     clear_selection_requested = Signal()
     download_requested = Signal()
     stop_download_requested = Signal()
+    about_requested = Signal()
 
     def __init__(self, base_dir):
         super().__init__()
@@ -40,6 +41,7 @@ class MainWindow(QMainWindow):
         self.grid_icon = QIcon(os.path.join(self.base_dir, "icons", "grid.png"))
         self.broom_icon = QIcon(os.path.join(self.base_dir, "icons", "broom.png"))
         self.control_power_icon = QIcon(os.path.join(self.base_dir, "icons", "control-power.png"))
+        self.about_icon = QIcon(os.path.join(self.base_dir, "icons", "information.png"))
 
         # --- Create Core Layout ---
         main_splitter = QSplitter(Qt.Horizontal)
@@ -117,6 +119,11 @@ class MainWindow(QMainWindow):
         self.clear_selection_action.setToolTip("Clear all selected tiles from the list.")
         self.clear_selection_action.triggered.connect(self.clear_selection_requested)
 
+        # About
+        self.about_action = QAction(QIcon(self.about_icon), "&About", self)
+        self.about_action.setStatusTip("Show application information")
+        self.about_action.triggered.connect(self.about_requested)
+
     def _setup_menu(self):
         """Creates the main menu bar."""
         menu = self.menuBar()
@@ -129,6 +136,9 @@ class MainWindow(QMainWindow):
 
         view_menu = menu.addMenu("&View")
         view_menu.addAction(self.toggle_grid_action)
+
+        help_menu = menu.addMenu("&Help")
+        help_menu.addAction(self.about_action)
 
     def _setup_toolbar(self):
         """Creates the main toolbar."""
